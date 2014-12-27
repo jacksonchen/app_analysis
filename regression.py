@@ -4,7 +4,6 @@ import re
 from pylab import *
 import glob
 import string
-from time import sleep
 import sys
 from datetime import datetime
 
@@ -51,23 +50,28 @@ def words_comments_table(total_words, comments_table, words_per_comment):
 
   return words_comments, comments_ratings
 
+## Generates word_comments and comments_ratings tables
+def generate_words_comments():
+  app_comments = pd.DataFrame(columns = ['date_published', 'downloads', 'package', 'reviews', 'version_code', 'version_name'])
+  app_comments = compile_comments("/Users/Jackson/dev/science/health-apps/comments/*.json", app_comments)
+
+  total_words, words_per_comment = words_table(app_comments)
+  print "Total word count: " + str(len(total_words))
+
+  words_comments, comments_ratings = words_comments_table(total_words, app_comments, words_per_comment)
+
+  ## Writes the dataframes into csv files
+  f = open('words_comments.csv', 'wb')
+  f.write(words_comments.to_csv(index = False))
+  f.close()
+  f = open('comments_ratings.csv', 'wb')
+  f.write(comments_ratings.to_csv(index = False))
+  f.close()
+
 ### Main ###
 beginning_time = datetime.now()
 
-app_comments = pd.DataFrame(columns = ['date_published', 'downloads', 'package', 'reviews', 'version_code', 'version_name'])
-app_comments = compile_comments("/Users/Jackson/dev/science/health-apps/comments/*.json", app_comments)
 
-total_words, words_per_comment = words_table(app_comments)
-print "Total word count: " + str(len(total_words))
-
-words_comments, comments_ratings = words_comments_table(total_words, app_comments, words_per_comment)
-
-f = open('words_comments.csv', 'wb')
-f.write(words_comments.to_csv(index = False))
-f.close()
-f = open('comments_ratings.csv', 'wb')
-f.write(comments_ratings.to_csv(index = False))
-f.close()
 
 end_time = datetime.now()
 elapsed_seconds = (end_time - beginning_time).seconds
