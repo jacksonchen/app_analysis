@@ -100,17 +100,22 @@ def pre_lda(consistent_neg_comments, app_comments):
 beginning_time = datetime.now()
 
   # Configurations
-x_path = 'health-apps/regression_matrices/words_comments.csv'
-y_path = 'health-apps/regression_matrices/comments_ratings.csv'
-words_comments_path = 'health-apps/regression_matrices/words_per_comment.csv'
-app_comments_path = 'health-apps/comments/*.json'
+f = open('config.py', 'r').readlines()
+x_path = re.match("x_path = '([^']+)'", f[0]).group(1)
+y_path = re.match("y_path = '([^']+)'", f[1]).group(1)
+words_comments_path = re.match("words_comments_path = '([^']+)'", f[2]).group(1)
+app_comments_path = re.match("app_comments_path = '([^']+)'", f[3]).group(1)
+
+# x_path = 'health-apps/regression_matrices/words_comments.csv'
+# y_path = 'health-apps/regression_matrices/comments_ratings.csv'
+# words_comments_path = 'health-apps/regression_matrices/words_per_comment.csv'
+# app_comments_path = 'health-apps/comments/*.json'
 
 x, y, words_per_comment, app_comments = load_data(x_path, y_path, words_comments_path, app_comments_path)
 word_vals, comments_prediction = regression(x, y)
 predict_true_vals = predict_true_table(y, comments_prediction)
 consistent_neg_comments, inconsistent_comments = consistency(predict_true_vals, words_per_comment, word_vals)
 pre_lda(consistent_neg_comments, app_comments)
-#print word_vals
 
 end_time = datetime.now()
 elapsed_seconds = (end_time - beginning_time).seconds
