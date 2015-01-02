@@ -1,77 +1,116 @@
-from __future__ import division
 import pandas as pd
+import matplotlib
 import re
-from pylab import *
 import glob
-import string
+from pylab import *
+import numpy as np
+from sklearn import linear_model
+from ast import literal_eval
+from sklearn.linear_model import MultiTaskElasticNetCV
+from sklearn.linear_model import RidgeCV
 import sys
 from datetime import datetime
 
-def compile_comments(path, app_comments):
-  for fname in glob.glob(path):
-    app_comments = pd.concat([app_comments, pd.read_json(fname)], ignore_index=True)
-  return app_comments
-
-def words_table(app_comments):
-  words_per_comment = pd.DataFrame(columns = ['comments', 'words'])
-  words_per_comment.set_index(['comments'], inplace = True)
-  contraction_match = re.compile("[^']+'[a-zA-Z]{1,2}$")
-  total_words = []
-  for index, row in app_comments.iterrows():
-    if row[3]['st'] is not None and row[3]['cmt'] is not None:
-      contractions = [x.encode('ascii','ignore').lower().translate(string.maketrans('', ''), '\\') for x in filter(None, re.split("\s|,|:|-|\.|\(|\)|\/|\[|\]|!|\*|;|\"|\\|\\\\|\+", row[3]['cmt'])) if contraction_match.match(x.encode('ascii','ignore'))]
-      cleaned_words = [x.encode('ascii','ignore').lower().translate(string.maketrans('', ''), '\\!?\.') for x in filter(None, re.split("\s|,|:|-|\.|\(|\)|\/|\[|\]|!|\*|;|\"|'|\\|\\\\|\+", row[3]['cmt']))]
-      cleaned_words = filter(None, cleaned_words)
-      words_per_comment.loc[index, 'words'] = cleaned_words + contractions
-      total_words.extend(cleaned_words)
-      if contractions is not None:
-        total_words.extend(contractions)
-
-  return list(set(total_words)), words_per_comment
-
-def words_comments_table(total_words, comments_table, words_per_comment):
-  words_comments = pd.DataFrame(columns = ['comments'])
+def load_data(x_path, y_path, words_comments_path, app_comments_path):
+  x = pd.read_csv(x_path, index_col = False)
+  x.set_index(['comments'], inplace = True)
+  y = pd.read_csv(y_path)
+  y.set_index(['comments'], inplace = True)
+  words_comments = pd.read_csv(words_comments_path)
+  words_comments.words = words_comments.words.apply(literal_eval)
   words_comments.set_index(['comments'], inplace = True)
 
-  comments_ratings = pd.DataFrame(columns = ['comments', 'rating'])
-  comments_ratings.set_index(['comments'], inplace = True)
-
-  progress_counter = 0
-  for index, row in comments_table.iterrows():
-    if row[3]['st'] is not None and row[3]['cmt'] is not None:
-      for word in total_words:
-        words_comments.loc[index, word] = words_per_comment.loc[index, 'words'].count(word)
-      comments_ratings.loc[index, 'rating'] = row[3]['st']
-    progress = int(round(progress_counter*190/len(comments_table.index)))
-    sys.stdout.write('\r')
-    sys.stdout.write("[%-190s] %d%%" % ('='*progress, (progress_counter/len(comments_table.index)*100)))
-    sys.stdout.flush()
-    progress_counter += 1
-
-  return words_comments, comments_ratings
-
-## Generates word_comments and comments_ratings tables
-def generate_words_comments():
   app_comments = pd.DataFrame(columns = ['date_published', 'downloads', 'package', 'reviews', 'version_code', 'version_name'])
-  app_comments = compile_comments("/Users/Jackson/dev/science/health-apps/comments/*.json", app_comments)
+  for fname in glob.glob(app_comments_path):
+    app_comments = pd.concat([app_comments, pd.read_json(fname)], ignore_index=True)
 
-  total_words, words_per_comment = words_table(app_comments)
-  print "Total word count: " + str(len(total_words))
+  return x, y, words_comments, app_comments
 
-  words_comments, comments_ratings = words_comments_table(total_words, app_comments, words_per_comment)
+def regression(x, y):
+  #enet = MultiTaskElasticNetCV(l1_ratio=0.2)
+  enet = RidgeCV()
+  y_pred_enet = enet.fit(x, y)
 
-  ## Writes the dataframes into csv files
-  f = open('words_comments.csv', 'wb')
-  f.write(words_comments.to_csv(index = False))
-  f.close()
-  f = open('comments_ratings.csv', 'wb')
-  f.write(comments_ratings.to_csv(index = False))
+  word_vals = pd.DataFrame(columns = ['coeff'])
+  counter = 0
+  for i in y_pred_enet.coef_[0]:
+    word_vals.loc[x.columns.values[counter]] = i
+    counter += 1
+
+  predicted_vals = y_pred_enet.predict(x)
+  predicted_df = pd.DataFrame(columns = ['comment','predicted'])
+  predicted_df.set_index(['comment'], inplace = True)
+  counter = 0
+  for i in y.index.values:
+    predicted_df.loc[i, 'predicted'] = predicted_vals[counter][0]
+    counter += 1
+
+  return word_vals, predicted_df
+
+def predict_true_table(y, predicted_df):
+  predict_true_vals = pd.DataFrame(columns = ['predicted', 'true'])
+  for i in y.index.values:
+    predict_true_vals.loc[i] = [predicted_df.loc[i, 'predicted'], y.loc[i, "rating"]]
+
+  return predict_true_vals
+
+def consistency(predict_true_vals, words_comments, word_vals):
+  consistent_neg_comments = pd.DataFrame(columns = ['words'])
+  inconsistent_comments = pd.DataFrame(columns = ['predicted', 'true'])
+  for i in predict_true_vals.index.values:
+    if (predict_true_vals.loc[i, 'true'] < 3) and (abs(predict_true_vals.loc[i, 'predicted'] - predict_true_vals.loc[i, 'true']) < 0.5):
+      neg_words = []
+      for word in words_comments.loc[i, 'words']:
+        if word_vals.loc[word, 'coeff'] < 0:
+          neg_words.append(word)
+      consistent_neg_comments.loc[i, 'words'] = neg_words
+    elif (abs(predict_true_vals.loc[i, 'predicted'] - predict_true_vals.loc[i, 'true']) >= 3):
+      inconsistent_comments.loc[i] = [predict_true_vals.loc[i, 'predicted'], predict_true_vals.loc[i, 'true']]
+
+  return consistent_neg_comments, inconsistent_comments
+
+def pre_lda(consistent_neg_comments, app_comments):
+  combined = pd.DataFrame(columns = ['package', 'verc', 'blank', 'words'])
+  combined.set_index(['package', 'verc'], inplace = True)
+  for i in consistent_neg_comments.index.values:
+    inIndex = False
+    if len(combined.index.values) > 0:
+      for s in combined.index.values:
+        if (str(app_comments.loc[i, 'package']), str(int(app_comments.loc[i, 'version_code']))) == s:
+          inIndex = True
+          break
+
+    if inIndex == True:
+      prev = combined.loc[(str(app_comments.loc[i, 'package']), str(int(app_comments.loc[i, 'version_code']))), "words"]
+      combined.loc[(str(app_comments.loc[i, 'package']), str(int(app_comments.loc[i, 'version_code']))), "words"] = prev + ' ' + ' '.join(consistent_neg_comments.loc[i, 'words'])
+    else:
+      combined.loc[(str(app_comments.loc[i, 'package']), str(int(app_comments.loc[i, 'version_code']))), 'words'] = ' '.join(consistent_neg_comments.loc[i, 'words'])
+
+  to_print = pd.DataFrame(columns = ['package', 'verc', 'words'])
+  for i in range(len(combined.index.get_values())):
+    to_print.loc[i, 'package'] = str(combined.index.get_values()[i][0])
+    to_print.loc[i, 'verc'] = str(combined.index.get_values()[i][1])
+    to_print.loc[i, 'words'] = str(combined.loc[(combined.index.get_values()[i][0], combined.index.get_values()[i][1]), 'words'])
+
+  f = open('health-apps/lda/lda.csv', 'wb')
+  f.write(to_print.to_csv(header = False))
   f.close()
 
 ### Main ###
 beginning_time = datetime.now()
 
+  # Configurations
+x_path = 'health-apps/regression_matrices/words_comments.csv'
+y_path = 'health-apps/regression_matrices/comments_ratings.csv'
+words_comments_path = 'health-apps/regression_matrices/words_per_comment.csv'
+app_comments_path = 'health-apps/comments/*.json'
 
+x, y, words_per_comment, app_comments = load_data(x_path, y_path, words_comments_path, app_comments_path)
+word_vals, comments_prediction = regression(x, y)
+predict_true_vals = predict_true_table(y, comments_prediction)
+consistent_neg_comments, inconsistent_comments = consistency(predict_true_vals, words_per_comment, word_vals)
+pre_lda(consistent_neg_comments, app_comments)
+#print word_vals
 
 end_time = datetime.now()
 elapsed_seconds = (end_time - beginning_time).seconds
