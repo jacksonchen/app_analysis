@@ -24,6 +24,8 @@ def words_table(app_comments):
   words_per_comment.set_index(['comments'], inplace = True)
   contraction_match = re.compile("[^']+'[a-zA-Z]{1,2}$")
   total_words = []
+  print "\n"
+  counter = 1
   for index, row in app_comments.iterrows():
     if row[3]['st'] is not None and row[3]['cmt'] is not None:
       contractions = [x.encode('ascii','ignore').lower().translate(string.maketrans('', ''), '\\') for x in filter(None, re.split("\s|,|:|-|\.|\(|\)|\/|\[|\]|!|\*|;|\"|\\|\\\\|\+", row[3]['cmt'])) if contraction_match.match(x.encode('ascii','ignore'))]
@@ -31,6 +33,9 @@ def words_table(app_comments):
       cleaned_words = filter(None, cleaned_words)
       words_per_comment.loc[index, 'words'] = cleaned_words + contractions
       total_words.extend(cleaned_words)
+      sys.stdout.write("\r{0}".format(str(counter) + " comments processed"))
+      sys.stdout.flush()
+      counter += 1
       if contractions is not None:
         total_words.extend(contractions)
 
@@ -43,7 +48,7 @@ def words_comments_table(total_words, comments_table, words_per_comment):
   comments_ratings = pd.DataFrame(columns = ['comments', 'rating'])
   comments_ratings.set_index(['comments'], inplace = True)
 
-  progress_counter = 0
+  progress_counter = 1
   for index, row in comments_table.iterrows():
     if row[3]['st'] is not None and row[3]['cmt'] is not None:
       for word in total_words:
