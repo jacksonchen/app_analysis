@@ -58,9 +58,9 @@ def words_comments_table(total_words, comments_table, words_per_comment):
   return words_comments, comments_ratings
 
 ## Generates word_comments and comments_ratings tables
-def generate_words_comments(words_comments_path, comments_ratings_path, words_per_comment_path):
+def generate_words_comments(words_comments_path, comments_ratings_path, words_per_comment_path, app_comments_path):
   app_comments = pd.DataFrame(columns = ['date_published', 'downloads', 'package', 'reviews', 'version_code', 'version_name'])
-  app_comments = compile_comments("health-apps/comments/*.json", app_comments)
+  app_comments = compile_comments(app_comments_path, app_comments)
 
   total_words, words_per_comment = words_table(app_comments)
   print "\nTotal word count: " + str(len(total_words))
@@ -84,10 +84,11 @@ beginning_time = datetime.now()
   # Configurations
 f = open('config.py', 'r').readlines()
 words_comments_path = re.match("words_comments_path = '([^']+)'", f[2]).group(1)
+app_comments_path = re.match("app_comments_path = '([^']+)'", f[3]).group(1)
 comments_ratings_path = re.match("comments_ratings_path = '([^']+)'", f[4]).group(1)
 words_per_comment_path = re.match("words_per_comment_path = '([^']+)'", f[5]).group(1)
 
-generate_words_comments(words_comments_path, comments_ratings_path, words_per_comment_path)
+generate_words_comments(words_comments_path, comments_ratings_path, words_per_comment_path, app_comments_path)
 
 end_time = datetime.now()
 elapsed_seconds = (end_time - beginning_time).seconds
